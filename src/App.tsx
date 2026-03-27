@@ -51,7 +51,6 @@ const translateText = async (text: string, targetLanguage: string) => {
 export default function App() {
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const [currentLang, setCurrentLang] = useState('ar');
-  const [isTranslating, setIsTranslating] = useState(false);
   const [translationError, setTranslationError] = useState('');
   const translatableRef = useRef<HTMLDivElement>(null);
   const originalTextsRef = useRef<string[]>([]);
@@ -106,15 +105,13 @@ export default function App() {
         return;
       }
 
-      setIsTranslating(true);
       setTranslationError('');
 
       try {
         if (!translatedCacheRef.current[currentLang]) {
-          const translated: string[] = [];
-          for (const originalText of originalTextsRef.current) {
-            translated.push(await translateText(originalText, currentLang));
-          }
+          const translated = await Promise.all(
+            originalTextsRef.current.map((originalText) => translateText(originalText, currentLang))
+          );
           translatedCacheRef.current[currentLang] = translated;
         }
 
@@ -124,8 +121,6 @@ export default function App() {
         });
       } catch {
         setTranslationError('تعذر تحميل الترجمة الآن، حاول مرة أخرى.');
-      } finally {
-        setIsTranslating(false);
       }
     };
 
@@ -178,11 +173,6 @@ export default function App() {
 
       {/* Main Content */}
       <main ref={translatableRef} className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {isTranslating && (
-          <p className="mb-4 rounded-md bg-blue-50 text-blue-700 px-4 py-2 text-sm">
-            جاري ترجمة الصفحة...
-          </p>
-        )}
         {translationError && (
           <p className="mb-4 rounded-md bg-red-50 text-red-700 px-4 py-2 text-sm">
             {translationError}
