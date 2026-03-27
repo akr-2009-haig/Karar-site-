@@ -3,35 +3,137 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Globe, ChevronDown } from 'lucide-react';
 
-const languages = [
-  "English",
-  "العربية",
-  "فارسي",
-  "普通话(Chinese Simplified)",
-  "Русский (Russian)",
-  "Español (Spanish)",
-  "हिन्दी (Hindi)",
-  "Português (Portuguese)",
-  "বাংলা (Bengali)",
-  "Français (French)",
-  "Deutsch (German)",
-  "日本語 (Japanese)",
-  "한국어 (Korean)",
-  "Türkçe (Turkish)",
-  "Tiếng Việt (Vietnamese)",
-  "Italiano (Italian)",
-  "Polski (Polish)"
+type Language = {
+  code: string;
+  label: string;
+  dir: 'rtl' | 'ltr';
+};
+
+const languages: Language[] = [
+  { code: 'en', label: 'English', dir: 'ltr' },
+  { code: 'ar', label: 'العربية', dir: 'rtl' },
+  { code: 'fa', label: 'فارسي', dir: 'rtl' },
+  { code: 'zh-CN', label: '普通话(Chinese Simplified)', dir: 'ltr' },
+  { code: 'ru', label: 'Русский (Russian)', dir: 'ltr' },
+  { code: 'es', label: 'Español (Spanish)', dir: 'ltr' },
+  { code: 'hi', label: 'हिन्दी (Hindi)', dir: 'ltr' },
+  { code: 'pt', label: 'Português (Portuguese)', dir: 'ltr' },
+  { code: 'bn', label: 'বাংলা (Bengali)', dir: 'ltr' },
+  { code: 'fr', label: 'Français (French)', dir: 'ltr' },
+  { code: 'de', label: 'Deutsch (German)', dir: 'ltr' },
+  { code: 'ja', label: '日本語 (Japanese)', dir: 'ltr' },
+  { code: 'ko', label: '한국어 (Korean)', dir: 'ltr' },
+  { code: 'tr', label: 'Türkçe (Turkish)', dir: 'ltr' },
+  { code: 'vi', label: 'Tiếng Việt (Vietnamese)', dir: 'ltr' },
+  { code: 'it', label: 'Italiano (Italian)', dir: 'ltr' },
+  { code: 'pl', label: 'Polski (Polish)', dir: 'ltr' }
 ];
+
+const translateText = async (text: string, targetLanguage: string) => {
+  const params = new URLSearchParams({
+    client: 'gtx',
+    sl: 'auto',
+    tl: targetLanguage,
+    dt: 't',
+    q: text
+  });
+  const response = await fetch(`https://translate.googleapis.com/translate_a/single?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error('Translation request failed');
+  }
+  const data = await response.json();
+  return (data?.[0] ?? []).map((chunk: [string]) => chunk[0]).join('');
+};
 
 export default function App() {
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
-  const [currentLang, setCurrentLang] = useState("العربية");
+  const [currentLang, setCurrentLang] = useState('ar');
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationError, setTranslationError] = useState('');
+  const translatableRef = useRef<HTMLDivElement>(null);
+  const originalTextsRef = useRef<string[]>([]);
+  const textNodesRef = useRef<Text[]>([]);
+  const translatedCacheRef = useRef<Record<string, string[]>>({});
+
+  const selectedLanguage = useMemo(
+    () => languages.find((language) => language.code === currentLang) ?? languages[1],
+    [currentLang]
+  );
+
+  useEffect(() => {
+    if (!translatableRef.current || textNodesRef.current.length > 0) {
+      return;
+    }
+
+    const walker = document.createTreeWalker(translatableRef.current, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    const originalTexts: string[] = [];
+    let currentNode = walker.nextNode();
+
+    while (currentNode) {
+      const textNode = currentNode as Text;
+      const content = textNode.textContent ?? '';
+      const trimmed = content.trim();
+      if (trimmed && /[\p{L}\p{N}]/u.test(trimmed)) {
+        textNodes.push(textNode);
+        originalTexts.push(content);
+      }
+      currentNode = walker.nextNode();
+    }
+
+    textNodesRef.current = textNodes;
+    originalTextsRef.current = originalTexts;
+  }, []);
+
+  useEffect(() => {
+    const applyLanguage = async () => {
+      const dir = selectedLanguage.dir;
+      document.documentElement.lang = currentLang;
+      document.documentElement.dir = dir;
+
+      if (currentLang === 'ar') {
+        textNodesRef.current.forEach((node, index) => {
+          node.textContent = originalTextsRef.current[index];
+        });
+        setTranslationError('');
+        return;
+      }
+
+      if (!originalTextsRef.current.length) {
+        return;
+      }
+
+      setIsTranslating(true);
+      setTranslationError('');
+
+      try {
+        if (!translatedCacheRef.current[currentLang]) {
+          const translated: string[] = [];
+          for (const originalText of originalTextsRef.current) {
+            translated.push(await translateText(originalText, currentLang));
+          }
+          translatedCacheRef.current[currentLang] = translated;
+        }
+
+        const cachedTranslation = translatedCacheRef.current[currentLang];
+        textNodesRef.current.forEach((node, index) => {
+          node.textContent = cachedTranslation[index] ?? originalTextsRef.current[index];
+        });
+      } catch {
+        setTranslationError('تعذر تحميل الترجمة الآن، حاول مرة أخرى.');
+      } finally {
+        setIsTranslating(false);
+      }
+    };
+
+    void applyLanguage();
+  }, [currentLang, selectedLanguage.dir]);
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans" dir="rtl">
+    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans" dir={selectedLanguage.dir}>
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -48,7 +150,7 @@ export default function App() {
               className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-md transition-colors"
             >
               <Globe className="w-4 h-4" />
-              <span className="text-sm font-medium hidden sm:block">{currentLang}</span>
+              <span className="text-sm font-medium max-w-40 truncate">{selectedLanguage.label}</span>
               <ChevronDown className="w-4 h-4" />
             </button>
 
@@ -57,14 +159,14 @@ export default function App() {
                 <div className="py-1">
                   {languages.map((lang) => (
                     <button
-                      key={lang}
+                      key={lang.code}
                       onClick={() => {
-                        setCurrentLang(lang);
+                        setCurrentLang(lang.code);
                         setIsLangMenuOpen(false);
                       }}
-                      className={`block w-full text-right px-4 py-2 text-sm ${currentLang === lang ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
+                      className={`block w-full text-right px-4 py-2 text-sm ${currentLang === lang.code ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
                     >
-                      {lang}
+                      {lang.label}
                     </button>
                   ))}
                 </div>
@@ -75,7 +177,17 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main ref={translatableRef} className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {isTranslating && (
+          <p className="mb-4 rounded-md bg-blue-50 text-blue-700 px-4 py-2 text-sm">
+            جاري ترجمة الصفحة...
+          </p>
+        )}
+        {translationError && (
+          <p className="mb-4 rounded-md bg-red-50 text-red-700 px-4 py-2 text-sm">
+            {translationError}
+          </p>
+        )}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900 mb-8 pb-4 border-b border-gray-100">
             📜 شروط الخدمة لخدمات MakeronBot
